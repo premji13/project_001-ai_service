@@ -2,8 +2,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Path, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.security import get_current_user
-from app.models import User, Document
+from app.models import Document
 from app.schemas import DocumentUploadResponse, DocumentResponse, QuestionRequest, AnswerResponse
 from app.chatbot.config import MAX_FILE_SIZE, ALLOWED_EXTENSIONS
 from app.chatbot.document_processor import DocumentProcessor
@@ -38,7 +37,6 @@ def get_qa_engine():
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Upload and process a document (txt, pdf, docx, doc)."""
@@ -70,7 +68,6 @@ async def upload_document(
 
         # Store document in DB
         doc = Document(
-            user_id=current_user.id,
             file_name=file.filename,
             file_type=ext.lower(),
             chunk_count=len(chunks)
@@ -80,7 +77,7 @@ async def upload_document(
         db.refresh(doc)
 
         # Store embeddings in Pinecone
-        vector_db.store_chunks(chunks, str(doc.id), current_user.id)
+        vector_db.store_chunks(chunks, str(doc.id))
 
         return DocumentUploadResponse(
             message=f"Document '{file.filename}' uploaded and processed ({len(chunks)} chunks)",
@@ -97,12 +94,9 @@ async def upload_document(
 
 
 @router.get("/documents", response_model=list[DocumentResponse])
-async def list_documents(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """List all documents uploaded by the current user."""
-    documents = db.query(Document).filter(Document.user_id == current_user.id).all()
+async def list_documents(db: Session = Depends(get_db)):
+    """List all uploaded documents."""
+    documents = db.query(Document).all()
     return documents
 
 
@@ -110,18 +104,13 @@ async def list_documents(
 async def ask_question(
     document_id: int = Path(..., gt=0),
     request: QuestionRequest = Body(...),
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Ask a question about a specific document."""
     if request is None or not request.question.strip():
         raise HTTPException(status_code=400, detail="Question is required")
 
-    # Verify document ownership
-    doc = db.query(Document).filter(
-        Document.id == document_id,
-        Document.user_id == current_user.id
-    ).first()
+    doc = db.query(Document).filter(Document.id == document_id).first()
 
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -137,15 +126,11 @@ async def ask_question(
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: int = Path(..., gt=0),
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a document and remove its embeddings from Pinecone."""
+    """Delete a document and its embeddings from Pinecone."""
     
-    doc = db.query(Document).filter(
-        Document.id == document_id,
-        Document.user_id == current_user.id
-    ).first()
+    doc = db.query(Document).filter(Document.id == document_id).first()
     
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")

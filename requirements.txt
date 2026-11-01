@@ -1,2 +1,14 @@
 fastapi==0.162.0
 uvicorn==0.54.0
+SQLAlchemy==2.1.6
+dotenv==0.9.9
+psycopg==3.3.6
+pydantic>=2.9.0
+python-multipart>=0.0.9
+langchain-text-splitters>=0.2.0
+langchain-core>=0.3.0
+langchain-groq>=0.2.0
+pinecone>=5.0.0
+openai>=1.0.0
+pypdf>=4.0.0
+python-docx>=1.0.0
