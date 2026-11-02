@@ -24,5 +24,11 @@ def init_db():
             column["name"]
             for column in inspect(connection).get_columns("documents")
         }
-        if "user_id" in columns:
-            connection.execute(text("ALTER TABLE documents DROP COLUMN user_id"))
+        if "user_id" not in columns:
+            connection.execute(text("ALTER TABLE documents ADD COLUMN user_id INTEGER"))
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_documents_user_id "
+                "ON documents (user_id)"
+            )
+        )

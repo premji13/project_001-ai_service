@@ -1,6 +1,7 @@
 """Chatbot API endpoints for document upload and Q&A."""
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Path, Body
 from sqlalchemy.orm import Session
+from app.auth import get_current_user_id
 from app.database import get_db
 from app.models import Document
 from app.schemas import DocumentUploadResponse, DocumentResponse, QuestionRequest, AnswerResponse
@@ -11,7 +12,11 @@ from app.chatbot.qa_engine import RAGQAEngine
 import os
 import tempfile
 
-router = APIRouter(prefix="/chatbot", tags=["chatbot"])
+router = APIRouter(
+    prefix="/chatbot",
+    tags=["chatbot"],
+    dependencies=[Depends(get_current_user_id)],
+)
 document_processor = DocumentProcessor()
 
 _vector_db = None
@@ -37,6 +42,7 @@ def get_qa_engine():
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
+    user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """Upload and process a document (txt, pdf, docx, doc)."""
@@ -68,6 +74,7 @@ async def upload_document(
 
         # Store document in DB
         doc = Document(
+            user_id=user_id,
             file_name=file.filename,
             file_type=ext.lower(),
             chunk_count=len(chunks)
@@ -94,9 +101,12 @@ async def upload_document(
 
 
 @router.get("/documents", response_model=list[DocumentResponse])
-async def list_documents(db: Session = Depends(get_db)):
+async def list_documents(
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
     """List all uploaded documents."""
-    documents = db.query(Document).all()
+    documents = db.query(Document).filter(Document.user_id == user_id).all()
     return documents
 
 
@@ -104,13 +114,18 @@ async def list_documents(db: Session = Depends(get_db)):
 async def ask_question(
     document_id: int = Path(..., gt=0),
     request: QuestionRequest = Body(...),
+    user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """Ask a question about a specific document."""
     if request is None or not request.question.strip():
         raise HTTPException(status_code=400, detail="Question is required")
 
-    doc = db.query(Document).filter(Document.id == document_id).first()
+    doc = (
+        db.query(Document)
+        .filter(Document.id == document_id, Document.user_id == user_id)
+        .first()
+    )
 
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -126,11 +141,16 @@ async def ask_question(
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: int = Path(..., gt=0),
+    user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """Delete a document and its embeddings from Pinecone."""
     
-    doc = db.query(Document).filter(Document.id == document_id).first()
+    doc = (
+        db.query(Document)
+        .filter(Document.id == document_id, Document.user_id == user_id)
+        .first()
+    )
     
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")

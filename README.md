@@ -9,5 +9,8 @@ Document chatbot API. The service exposes:
 
 Interactive API documentation is available at `/docs`.
 
-These endpoints are unauthenticated, and document operations are shared across clients.
-On startup, the legacy `documents.user_id` column is removed.
+All `/chatbot/*` routes require an `Authorization: Bearer <JWT>` header. The health endpoint (`GET /`) is public. Tokens must use HS256, include an `exp` expiry, and contain the positive numeric user ID as a string in the `sub` claim. The identity service provisions users and issues tokens; this service does not provide registration or login endpoints.
+
+Set `SECRET_KEY` in the deployment environment to the same secret used by the identity service. It must be at least 32 bytes long. Do not commit the secret to source control. The token issuer controls token lifetime; this service validates the `exp` claim.
+
+Document operations are scoped to the authenticated user. Existing documents without an owner remain inaccessible until assigned to a user.

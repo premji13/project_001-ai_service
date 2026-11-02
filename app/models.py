@@ -8,6 +8,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
     file_name = Column(String, nullable=False)
     file_type = Column(String, nullable=False)  # txt, pdf, docx, doc
     chunk_count = Column(Integer, default=0)
