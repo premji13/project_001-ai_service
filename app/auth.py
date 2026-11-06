@@ -15,9 +15,9 @@ def validate_auth_configuration() -> None:
         raise RuntimeError("SECRET_KEY must be at least 32 bytes long")
 
 
-def get_current_user_id(
+def get_current_user_email(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-) -> int:
+) -> str:
     if credentials is None:
         raise HTTPException(
             status_code=401,
@@ -44,20 +44,20 @@ def get_current_user_id(
     subject = payload.get("sub")
     if (
         not isinstance(subject, str)
-        or not subject.isascii()
-        or not subject.isdecimal()
+        or subject.count("@") != 1
+        or any(character.isspace() for character in subject)
     ):
         raise HTTPException(
             status_code=401,
-            detail="Token must contain a numeric user ID in the sub claim",
+            detail="Token must contain a valid email address in the sub claim",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user_id = int(subject)
-    if user_id <= 0:
+    local_part, domain = subject.split("@")
+    if not local_part or not domain:
         raise HTTPException(
             status_code=401,
-            detail="Token must contain a positive user ID",
+            detail="Token must contain a valid email address in the sub claim",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return user_id
+    return subject

@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.auth as auth
 import app.main as main
+import app.routers.chatbot as chatbot
 from app.database import get_db
 from app.models import Base, Document
 
@@ -15,10 +16,10 @@ from app.models import Base, Document
 SECRET = "test-secret-key-with-at-least-32-bytes"
 
 
-def issue_token(user_id: int) -> str:
+def issue_token(email: str) -> str:
     return jwt.encode(
         {
-            "sub": str(user_id),
+            "sub": email,
             "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
         },
         SECRET,
@@ -29,6 +30,17 @@ def issue_token(user_id: int) -> str:
 def test_api_routes_require_authentication_and_scope_documents(monkeypatch):
     monkeypatch.setattr(auth, "SECRET_KEY", SECRET)
     monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(
+        chatbot.document_processor,
+        "process_file",
+        lambda _path: ["chunk"],
+    )
+
+    class VectorDB:
+        def store_chunks(self, _chunks, _document_id):
+            pass
+
+    monkeypatch.setattr(chatbot, "get_vector_db", lambda: VectorDB())
 
     engine = create_engine(
         "sqlite://",
@@ -40,8 +52,16 @@ def test_api_routes_require_authentication_and_scope_documents(monkeypatch):
     with test_session() as db:
         db.add_all(
             [
-                Document(user_id=1, file_name="one.txt", file_type=".txt"),
-                Document(user_id=2, file_name="two.txt", file_type=".txt"),
+                Document(
+                    user_email="one@example.com",
+                    file_name="one.txt",
+                    file_type=".txt",
+                ),
+                Document(
+                    user_email="two@example.com",
+                    file_name="two.txt",
+                    file_type=".txt",
+                ),
             ]
         )
         db.commit()
@@ -65,11 +85,20 @@ def test_api_routes_require_authentication_and_scope_documents(monkeypatch):
             ).status_code == 401
             assert client.delete("/chatbot/documents/1").status_code == 401
 
-            headers = {"Authorization": f"Bearer {issue_token(1)}"}
+            headers = {
+                "Authorization": "Bearer " + issue_token("one@example.com")
+            }
+            upload = client.post(
+                "/chatbot/upload",
+                files={"file": ("new.txt", b"sample", "text/plain")},
+                headers=headers,
+            )
+            assert upload.status_code == 200
             documents = client.get("/chatbot/documents", headers=headers)
-            assert [document["file_name"] for document in documents.json()] == [
-                "one.txt"
-            ]
+            assert {document["file_name"] for document in documents.json()} == {
+                "one.txt",
+                "new.txt",
+            }
             assert client.post(
                 "/chatbot/ask/2",
                 json={"question": "question"},

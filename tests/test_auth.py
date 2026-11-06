@@ -19,21 +19,21 @@ def token_for(claims: dict) -> str:
     return jwt.encode(claims, SECRET, algorithm="HS256")
 
 
-def test_accepts_valid_token_and_returns_numeric_user_id(monkeypatch):
+def test_accepts_valid_token_and_returns_email(monkeypatch):
     monkeypatch.setattr(auth, "SECRET_KEY", SECRET)
     token = token_for(
         {
-            "sub": "42",
+            "sub": "user@example.com",
             "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
         }
     )
 
-    assert auth.get_current_user_id(credentials(token)) == 42
+    assert auth.get_current_user_email(credentials(token)) == "user@example.com"
 
 
 def test_rejects_missing_credentials():
     with pytest.raises(HTTPException) as error:
-        auth.get_current_user_id(None)
+        auth.get_current_user_email(None)
 
     assert error.value.status_code == 401
     assert error.value.headers["WWW-Authenticate"] == "Bearer"
@@ -45,14 +45,17 @@ def test_rejects_missing_credentials():
         {"sub": "42", "exp": datetime.now(timezone.utc) - timedelta(minutes=5)},
         {"sub": "42"},
         {"exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
-        {"sub": "not-a-number", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+        {"sub": "not-an-email", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+        {"sub": "@example.com", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+        {"sub": "user@", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+        {"sub": "user @example.com", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
     ],
 )
 def test_rejects_expired_or_invalid_token_claims(monkeypatch, claims):
     monkeypatch.setattr(auth, "SECRET_KEY", SECRET)
 
     with pytest.raises(HTTPException) as error:
-        auth.get_current_user_id(credentials(token_for(claims)))
+        auth.get_current_user_email(credentials(token_for(claims)))
 
     assert error.value.status_code == 401
 
